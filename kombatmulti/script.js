@@ -71,25 +71,20 @@ function startGame() {
     const menu = document.getElementById('main-menu');
     const hud = document.getElementById('game-hud');
     
-    if(menu) menu.style.display = 'none'; // Menüyü kapat
-    if(hud) hud.style.display = 'block';  // Oyunu göster
+    if(menu) menu.style.display = 'none'; 
+    if(hud) hud.style.display = 'block';  
     
-    // Sesi başlatmayı dene
     try{SoundManager.init();}catch(e){}
-    
-    // Oyunu başlat
     startRound();
 }
 
-// --- ONLINE MANTIK (PEERJS) ---
+// --- ONLINE MANTIK ---
 function initPeer() {
     peer = new Peer(); 
-    
     peer.on('open', (id) => {
         document.getElementById('my-id').innerText = id;
         document.getElementById('status-text').innerText = "HAZIR (ID BEKLENİYOR)";
     });
-
     peer.on('connection', (connection) => {
         conn = connection;
         IS_HOST = true;
@@ -114,8 +109,6 @@ function setupConnection() {
         conn.on('data', (data) => {
             handleNetworkData(data);
         });
-
-        // 1 saniye sonra oyunu başlat
         setTimeout(() => {
             VS_AI = false;
             IS_ONLINE = true;
@@ -134,10 +127,7 @@ function sendData(data) {
 
 function handleNetworkData(data) {
     if(data.type === 'input') {
-        // Eğer ben HOST isem (P1), gelen veri RAKİPTİR (P2).
-        // Eğer ben CLIENT isem (P2), gelen veri RAKİPTİR (P1).
         const targetPlayer = IS_HOST ? p2 : p1; 
-        
         handleInput(targetPlayer, data.key, data.isDown);
     }
 }
@@ -147,7 +137,6 @@ function copyId() {
     navigator.clipboard.writeText(idText);
     alert("ID Kopyalandı!");
 }
-
 
 // --- THREE.JS SAHNE ---
 const scene = new THREE.Scene();
@@ -190,7 +179,7 @@ function createRing() {
 }
 createRing();
 
-// --- OYUNCU ---
+// --- OYUNCU SINIFI ---
 class Boxer {
     constructor(color, xPos, isFacingRight) {
         this.color = color;
@@ -274,11 +263,16 @@ class Boxer {
     attack(isUlti = false) {
         if (this.isAttacking || this.isBlocking || this.dead) return;
         if (!isUlti && this.stamina < 15) return;
+        
         this.isAttacking = true;
         if(!isUlti) this.stamina -= 15;
+        
         const glove = Math.random()>0.5 ? this.rightGlove : this.leftGlove;
         if (isUlti) {
-            this.ulti = 0; this.isUltiActive = true; SoundManager.ulti();
+            // ULTİ KULLANILDI - SIFIRLA
+            this.ulti = 0; 
+            this.isUltiActive = true; 
+            SoundManager.ulti();
             glove.scale.set(3,3,3); glove.material.color.setHex(0x00ffff); glove.position.z = 4.0;
             setTimeout(() => {
                 glove.scale.set(1,1,1); glove.material.color.setHex(0xffffff); glove.position.z = 0.7;
@@ -362,10 +356,7 @@ function updateAI() {
     if (p1.isAttacking && Math.random() < blockRate) p2.isBlocking = true; else if (!p1.isAttacking) p2.isBlocking = false;
 }
 
-// --- YENİ TUŞ AYARLARI (INPUT HANDLER) ---
-// İstediğin Ayarlar: 
-// HAREKET: Ok Tuşları (Sol, Sağ, Yukarı=Zıpla)
-// AKSİYON: A=Yumruk, S=Blok, D=Ulti
+// --- TUŞ KONTROLLERİ (Düzeltildi) ---
 function handleInput(player, key, isDown) {
     if(isDown) {
         if(key==='left') player.velocity.x = -player.speed;
@@ -382,19 +373,16 @@ function handleInput(player, key, isDown) {
 
 window.addEventListener('keydown', e => {
     if(!gameActive) return;
-    
-    // BENİM KONTROLLERİM
     let myAction = null;
-    
-    // YENİ TUŞ HARİTASI
     if(e.key==='ArrowRight') myAction = 'right';
     if(e.key==='ArrowLeft') myAction = 'left';
     if(e.key==='ArrowUp') myAction = 'jump';
-    
-    if(e.key==='a' || e.key==='A') myAction = 'attack'; // A tuşu Yumruk
-    if(e.key==='s' || e.key==='S') myAction = 'block';  // S tuşu Blok
-    if(e.key==='d' || e.key==='D') {                    // D tuşu Ulti
-        if(!IS_ONLINE || (IS_HOST ? p1.ulti : p2.ulti) >= 100) myAction = 'ulti';
+    if(e.key==='a' || e.key==='A') myAction = 'attack';
+    if(e.key==='s' || e.key==='S') myAction = 'block';
+    if(e.key==='d' || e.key==='D') {
+        // BURASI DEĞİŞTİ: Ulti için SIKI kontrol
+        const myPlayer = (IS_ONLINE && !IS_HOST) ? p2 : p1;
+        if(myPlayer.ulti >= 100) myAction = 'ulti';
     }
 
     if(myAction) {
@@ -403,7 +391,6 @@ window.addEventListener('keydown', e => {
             handleInput(myPlayer, myAction, true);
             sendData({ type: 'input', key: myAction, isDown: true });
         } else {
-            // Tek Kişilik Modda Ben P1'im
             handleInput(p1, myAction, true);
         }
     }
@@ -411,7 +398,6 @@ window.addEventListener('keydown', e => {
 
 window.addEventListener('keyup', e => {
     let myAction = null;
-
     if(e.key==='ArrowRight') myAction = 'right';
     if(e.key==='ArrowLeft') myAction = 'left';
     if(e.key==='s' || e.key==='S') myAction = 'block';
