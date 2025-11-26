@@ -1,7 +1,7 @@
 // --- GLOBAL DEĞİŞKENLER ---
 let VS_AI = true;
 let IS_ONLINE = false;
-let IS_HOST = false; // Oyunu kuran kişi mi?
+let IS_HOST = false; 
 let AI_DIFFICULTY = 'normal';
 const WIN_SCORE = 3;
 let gameActive = false;
@@ -14,7 +14,6 @@ let scores = { p1: 0, p2: 0 };
 // --- ONLINE BAĞLANTI DEĞİŞKENLERİ ---
 let peer = null;
 let conn = null;
-let myPeerID = null;
 
 // --- SES MOTORU ---
 const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -59,8 +58,6 @@ function startLocalGame(difficulty) {
 function showOnlineMenu() {
     document.getElementById('menu-buttons').style.display = 'none';
     document.getElementById('online-lobby').style.display = 'block';
-    
-    // PeerJS Başlat
     if(!peer) initPeer();
 }
 
@@ -70,23 +67,29 @@ function hideOnlineMenu() {
 }
 
 function startGame() {
-    document.getElementById('main-menu').style.display = 'none';
-    document.getElementById('game-hud').style.display = 'block';
+    // MENÜYÜ ZORLA GİZLE
+    const menu = document.getElementById('main-menu');
+    const hud = document.getElementById('game-hud');
+    
+    if(menu) menu.style.display = 'none'; // Menüyü kapat
+    if(hud) hud.style.display = 'block';  // Oyunu göster
+    
+    // Sesi başlatmayı dene
     try{SoundManager.init();}catch(e){}
+    
+    // Oyunu başlat
     startRound();
 }
 
 // --- ONLINE MANTIK (PEERJS) ---
 function initPeer() {
-    peer = new Peer(); // Otomatik ID al
+    peer = new Peer(); 
     
     peer.on('open', (id) => {
-        myPeerID = id;
         document.getElementById('my-id').innerText = id;
-        document.getElementById('status-text').innerText = "HAZIR";
+        document.getElementById('status-text').innerText = "HAZIR (ID BEKLENİYOR)";
     });
 
-    // Biri bana bağlanırsa (Ben HOST isem)
     peer.on('connection', (connection) => {
         conn = connection;
         IS_HOST = true;
@@ -97,22 +100,22 @@ function initPeer() {
 function joinGame() {
     const friendId = document.getElementById('friend-id').value;
     if(!friendId) return alert("Lütfen bir ID gir!");
-    
     conn = peer.connect(friendId);
     IS_HOST = false;
     setupConnection();
 }
 
 function setupConnection() {
-    document.getElementById('status-text').innerText = "BAĞLANDI! OYUN BAŞLIYOR...";
+    const statusText = document.getElementById('status-text');
+    statusText.innerText = "BAĞLANDI! OYUN BAŞLIYOR...";
+    statusText.style.color = "#00ff00";
     
     conn.on('open', () => {
-        // Veri geldiğinde ne yap?
         conn.on('data', (data) => {
             handleNetworkData(data);
         });
 
-        // 2 saniye sonra oyunu başlat
+        // 1 saniye sonra oyunu başlat
         setTimeout(() => {
             VS_AI = false;
             IS_ONLINE = true;
@@ -129,36 +132,20 @@ function sendData(data) {
     }
 }
 
-// Gelen veriyi işle
 function handleNetworkData(data) {
     if(data.type === 'input') {
-        const targetPlayer = IS_HOST ? p2 : p1; // Eğer ben Hostsam, gelen veri P2'nindir.
-        const key = data.key;
-        const isDown = data.isDown;
-
-        if(isDown) {
-            if(key==='left') targetPlayer.velocity.x = -targetPlayer.speed;
-            if(key==='right') targetPlayer.velocity.x = targetPlayer.speed;
-            if(key==='jump') targetPlayer.jump();
-            if(key==='block') targetPlayer.isBlocking = true;
-            if(key==='attack') targetPlayer.attack();
-            if(key==='ulti') targetPlayer.attack(true);
-        } else {
-            if(key==='left' || key==='right') targetPlayer.velocity.x = 0;
-            if(key==='block') targetPlayer.isBlocking = false;
-        }
-    }
-    // Senkronizasyon (Basit pozisyon düzeltme)
-    if(data.type === 'sync' && IS_HOST) {
-        // Host her zaman doğru kabul edilir, client sadece input gönderir
-        // Bu örnekte basit input senkronizasyonu kullanıyoruz
+        // Eğer ben HOST isem (P1), gelen veri RAKİPTİR (P2).
+        // Eğer ben CLIENT isem (P2), gelen veri RAKİPTİR (P1).
+        const targetPlayer = IS_HOST ? p2 : p1; 
+        
+        handleInput(targetPlayer, data.key, data.isDown);
     }
 }
 
 function copyId() {
     const idText = document.getElementById('my-id').innerText;
     navigator.clipboard.writeText(idText);
-    alert("ID Kopyalandı: " + idText);
+    alert("ID Kopyalandı!");
 }
 
 
@@ -181,7 +168,6 @@ dirLight.position.set(10, 20, 10);
 dirLight.castShadow = true;
 scene.add(dirLight);
 
-// --- RİNG ---
 function createRing() {
     const g = new THREE.Group();
     const base = new THREE.Mesh(new THREE.CylinderGeometry(16,14,2,8), new THREE.MeshStandardMaterial({color:0x333333}));
@@ -376,10 +362,10 @@ function updateAI() {
     if (p1.isAttacking && Math.random() < blockRate) p2.isBlocking = true; else if (!p1.isAttacking) p2.isBlocking = false;
 }
 
-// --- KONTROLLER (Input) ---
-const keys = { a:false, d:false };
-
-// Ortak Hareket Fonksiyonu (Hem yerel hem online için)
+// --- YENİ TUŞ AYARLARI (INPUT HANDLER) ---
+// İstediğin Ayarlar: 
+// HAREKET: Ok Tuşları (Sol, Sağ, Yukarı=Zıpla)
+// AKSİYON: A=Yumruk, S=Blok, D=Ulti
 function handleInput(player, key, isDown) {
     if(isDown) {
         if(key==='left') player.velocity.x = -player.speed;
@@ -397,44 +383,38 @@ function handleInput(player, key, isDown) {
 window.addEventListener('keydown', e => {
     if(!gameActive) return;
     
-    // BENİM KONTROLLERİM (Her zaman P1 gibi davranırım, ama online Client isem P2'yi kontrol ederim)
+    // BENİM KONTROLLERİM
     let myAction = null;
-    if(e.key==='d') { keys.d=true; myAction='right'; }
-    if(e.key==='a') { keys.a=true; myAction='left'; }
-    if(e.key==='w') myAction='jump';
-    if(e.key==='s') myAction='block';
-    if(e.key===' ') myAction='attack';
-    if(e.key==='Shift' && (!IS_ONLINE || (IS_HOST ? p1.ulti : p2.ulti) >= 100)) myAction='ulti';
-
-    if(myAction) {
-        // Eğer Online isek karşıya gönder
-        if(IS_ONLINE) {
-            // Host isem P1'i, Client isem P2'yi oynatırım
-            const myPlayer = IS_HOST ? p1 : p2;
-            handleInput(myPlayer, myAction, true); // Kendi ekranımda oynat
-            sendData({ type: 'input', key: myAction, isDown: true }); // Karşıya gönder
-        } else {
-            // Tek kişilik mod
-            handleInput(p1, myAction, true);
-        }
+    
+    // YENİ TUŞ HARİTASI
+    if(e.key==='ArrowRight') myAction = 'right';
+    if(e.key==='ArrowLeft') myAction = 'left';
+    if(e.key==='ArrowUp') myAction = 'jump';
+    
+    if(e.key==='a' || e.key==='A') myAction = 'attack'; // A tuşu Yumruk
+    if(e.key==='s' || e.key==='S') myAction = 'block';  // S tuşu Blok
+    if(e.key==='d' || e.key==='D') {                    // D tuşu Ulti
+        if(!IS_ONLINE || (IS_HOST ? p1.ulti : p2.ulti) >= 100) myAction = 'ulti';
     }
 
-    // YEREL OYUN (Yan yana oynama)
-    if(!VS_AI && !IS_ONLINE) {
-        if(e.key==='ArrowRight') handleInput(p2, 'right', true);
-        if(e.key==='ArrowLeft') handleInput(p2, 'left', true);
-        if(e.key==='ArrowUp') handleInput(p2, 'jump', true);
-        if(e.key==='ArrowDown') handleInput(p2, 'block', true);
-        if(e.key==='Enter') handleInput(p2, 'attack', true);
-        if(e.key==='Control') handleInput(p2, 'ulti', true);
+    if(myAction) {
+        if(IS_ONLINE) {
+            const myPlayer = IS_HOST ? p1 : p2;
+            handleInput(myPlayer, myAction, true);
+            sendData({ type: 'input', key: myAction, isDown: true });
+        } else {
+            // Tek Kişilik Modda Ben P1'im
+            handleInput(p1, myAction, true);
+        }
     }
 });
 
 window.addEventListener('keyup', e => {
     let myAction = null;
-    if(e.key==='d') { keys.d=false; myAction='right'; }
-    if(e.key==='a') { keys.a=false; myAction='left'; }
-    if(e.key==='s') myAction='block';
+
+    if(e.key==='ArrowRight') myAction = 'right';
+    if(e.key==='ArrowLeft') myAction = 'left';
+    if(e.key==='s' || e.key==='S') myAction = 'block';
 
     if(myAction) {
         if(IS_ONLINE) {
@@ -444,12 +424,6 @@ window.addEventListener('keyup', e => {
         } else {
             handleInput(p1, myAction, false);
         }
-    }
-
-    if(!VS_AI && !IS_ONLINE) {
-        if(e.key==='ArrowRight') handleInput(p2, 'right', false);
-        if(e.key==='ArrowLeft') handleInput(p2, 'left', false);
-        if(e.key==='ArrowDown') handleInput(p2, 'block', false);
     }
 });
 
@@ -476,12 +450,6 @@ function animate() {
     requestAnimationFrame(animate);
     const time = Date.now() * 0.001;
     if (gameActive && p1 && p2) {
-        if(!IS_ONLINE) { // Online değilsek tuş basılı tutma kontrolü buraya
-            p1.velocity.x = 0;
-            if (keys.a) p1.velocity.x = -p1.speed;
-            if (keys.d) p1.velocity.x = p1.speed;
-        }
-        
         if (VS_AI && !IS_ONLINE) updateAI();
         p1.update(-0.02, time); p2.update(-0.02, time);
         if(p1.isAttacking && !p1.hasHit) { checkHit(p1, p2); p1.hasHit=true; setTimeout(()=>p1.hasHit=false, 200); }
