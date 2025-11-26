@@ -2,24 +2,27 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Mobil için ölçekleme ayarı (Yakınlaştırmayı engeller) -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Cube Fighter Online</title>
+    
+    <!-- Stil Dosyası -->
     <link rel="stylesheet" href="style.css">
     
-    <!-- Three.js -->
+    <!-- Three.js (3D Motoru) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- PeerJS (Online bağlantı için) -->
+    <!-- PeerJS (Online Multiplayer Bağlantısı) -->
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
 
-    <!-- MENÜ (ID: main-menu) -->
+    <!-- 1. ANA MENÜ -->
     <div id="main-menu">
         <div class="menu-content">
             <h1 class="game-title">CUBE FIGHTER</h1>
             <p class="subtitle">ONLINE ARENA</p>
             
-            <!-- Ana Butonlar -->
+            <!-- Menü Butonları -->
             <div id="menu-buttons">
                 <div class="section-title">TEK KİŞİLİK</div>
                 <div class="btn-group">
@@ -34,10 +37,11 @@
                 </div>
             </div>
 
-            <!-- Online Lobi -->
+            <!-- Online Lobi (Başlangıçta Gizli) -->
             <div id="online-lobby" style="display:none;">
                 <p style="color:white; margin-bottom:10px;">LOBİ DURUMU: <span id="status-text" style="color:#00e5ff">BEKLENİYOR...</span></p>
                 
+                <!-- Host (Kurucu) Kısmı -->
                 <div id="host-controls">
                     <p style="color:#aaa; font-size:14px;">ARKADAŞINA BU KODU GÖNDER:</p>
                     <div class="id-box">
@@ -48,6 +52,7 @@
 
                 <div style="margin: 20px 0; color:white; font-weight:bold;">--- VEYA ---</div>
 
+                <!-- Join (Katılımcı) Kısmı -->
                 <div id="join-controls">
                     <input type="text" id="friend-id" placeholder="Arkadaşının Kodunu Yapıştır" class="id-input">
                     <button class="menu-btn btn-green" onclick="joinGame()">BAĞLAN</button>
@@ -58,8 +63,10 @@
         </div>
     </div>
 
-    <!-- OYUN HUD -->
+    <!-- 2. OYUN ARAYÜZÜ (HUD) -->
     <div id="game-hud" style="display:none;">
+        
+        <!-- Üst Orta Bilgi -->
         <div id="top-info">
             <div class="round-badge">ROUND <span id="round-num">1</span></div>
             <div class="score-display">
@@ -67,28 +74,30 @@
             </div>
         </div>
 
-        <!-- OYUNCU 1 (SOL) -->
+        <!-- Oyuncu 1 Paneli (Sol) -->
         <div class="player-card p1-card">
             <div class="p-name p1-color" id="p1-name">OYUNCU 1</div>
             <div class="bar-label">CAN %</div>
             <div class="bar-bg"><div id="p1-hp" class="bar-fill hp-fill"></div></div>
+            
             <div class="stats-row">
                 <div class="stat-box">
                     <div class="bar-label">ENERJİ</div>
                     <div class="bar-bg small"><div id="p1-stamina" class="bar-fill sta-fill"></div></div>
                 </div>
                 <div class="stat-box">
-                    <div class="bar-label">ULTİ (D TUŞU)</div>
+                    <div class="bar-label">ULTİ (D)</div>
                     <div class="bar-bg small"><div id="p1-ulti" class="bar-fill ult-fill"></div></div>
                 </div>
             </div>
         </div>
 
-        <!-- OYUNCU 2 (SAĞ) -->
+        <!-- Oyuncu 2 Paneli (Sağ) -->
         <div class="player-card p2-card">
             <div class="p-name p2-color" id="p2-name">OYUNCU 2</div>
             <div class="bar-label" style="text-align: right;">CAN %</div>
             <div class="bar-bg"><div id="p2-hp" class="bar-fill hp-fill p2-hp-style"></div></div>
+            
             <div class="stats-row">
                 <div class="stat-box">
                     <div class="bar-label">ULTİ</div>
@@ -101,9 +110,33 @@
             </div>
         </div>
 
+        <!-- Oyun Sonu Mesajı -->
         <div id="msg-overlay">K.O.</div>
     </div>
 
+    <!-- 3. MOBİL KONTROLLER (Sadece dokunmatik ekranlarda görünür) -->
+    <div id="mobile-controls">
+        <!-- Sol Taraf: Hareket -->
+        <div class="control-group left">
+            <button id="btn-left" class="touch-btn">⬅️</button>
+            <button id="btn-right" class="touch-btn">➡️</button>
+            <button id="btn-jump" class="touch-btn">⬆️</button>
+        </div>
+
+        <!-- Sağ Taraf: Saldırı -->
+        <div class="control-group right">
+            <button id="btn-block" class="touch-btn shield-btn">🛡️</button>
+            <button id="btn-atk" class="touch-btn punch-btn">🥊</button>
+            <button id="btn-ulti" class="touch-btn ulti-btn">🔥</button>
+        </div>
+    </div>
+
+    <!-- 4. EKRAN ÇEVİRME UYARISI (Telefon dik tutulursa görünür) -->
+    <div id="rotate-warning">
+        <p>Lütfen Telefonu Yan Çevirin 🔄</p>
+    </div>
+
+    <!-- JavaScript Bağlantısı -->
     <script src="script.js"></script>
 </body>
 </html>

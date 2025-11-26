@@ -458,3 +458,62 @@ function animate() {
 }
 animate();
 window.addEventListener('resize', () => { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+// --- MOBİL DOKUNMATİK KONTROLLERİ ---
+
+// Dokunmatik olaylarını bağla
+function setupMobileControls() {
+    const buttons = [
+        { id: 'btn-left', action: 'left' },
+        { id: 'btn-right', action: 'right' },
+        { id: 'btn-jump', action: 'jump' },
+        { id: 'btn-atk', action: 'attack' },
+        { id: 'btn-block', action: 'block' },
+        { id: 'btn-ulti', action: 'ulti' }
+    ];
+
+    buttons.forEach(btn => {
+        const el = document.getElementById(btn.id);
+        if(!el) return;
+
+        // Parmağı dokundurunca (Tuşa basma)
+        el.addEventListener('touchstart', (e) => {
+            e.preventDefault(); // Sayfanın kaymasını engelle
+            triggerGameInput(btn.action, true);
+        }, { passive: false });
+
+        // Parmağı çekince (Tuşu bırakma)
+        el.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            triggerGameInput(btn.action, false);
+        }, { passive: false });
+    });
+}
+
+// Bu fonksiyon mobil dokunuşu oyun komutuna çevirir
+function triggerGameInput(action, isDown) {
+    if(!gameActive) return;
+
+    // Online ise
+    if(IS_ONLINE) {
+        const myPlayer = IS_HOST ? p1 : p2;
+        
+        // Ulti kontrolü (Sadece dolunca basılabilir)
+        if(action === 'ulti') {
+            if(myPlayer.ulti < 100) return; // Dolmadıysa basma
+        }
+
+        handleInput(myPlayer, action, isDown);
+        sendData({ type: 'input', key: action, isDown: isDown });
+    } 
+    // Tek Kişilik ise
+    else {
+        // Ulti kontrolü
+        if(action === 'ulti') {
+            if(p1.ulti < 100) return;
+        }
+        handleInput(p1, action, isDown);
+    }
+}
+
+// Sayfa yüklendiğinde kontrolleri hazırla
+setupMobileControls();
