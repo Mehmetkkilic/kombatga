@@ -11,7 +11,7 @@ let screenShake = 0;
 let round = 1;
 let scores = { p1: 0, p2: 0 };
 
-// --- ONLINE BAĞLANTI DEĞİŞKENLERİ ---
+// --- BAĞLANTI DEĞİŞKENLERİ ---
 let peer = null;
 let conn = null;
 
@@ -64,57 +64,69 @@ window.showOnlineMenu = function() {
 window.hideOnlineMenu = function() {
     document.getElementById('online-lobby').style.display = 'none';
     document.getElementById('menu-buttons').style.display = 'block';
+    // Bağlantıları temizle
+    if(conn) conn.close();
+    if(peer) peer.destroy();
+    peer = null;
 }
 
 window.startGame = function() {
-    // Menüyü Gizle
     document.getElementById('main-menu').style.display = 'none';
     document.getElementById('game-hud').style.display = 'block';
-    
-    // Ses
     try { SoundManager.init(); } catch (e) {}
     
-    // İsimleri Ayarla
     if(IS_ONLINE) {
         document.getElementById('p1-name').innerText = IS_HOST ? "SEN (HOST)" : "RAKİP";
         document.getElementById('p2-name-label').innerText = IS_HOST ? "RAKİP" : "SEN (CLIENT)";
     }
-
     startRound();
 };
 
-// --- ONLINE MANTIK (GÜNCELLENMİŞ HANDSHAKE) ---
+// --- GÜÇLENDİRİLMİŞ ONLINE MANTIK ---
+function updateStatus(msg, color="white") {
+    const el = document.getElementById('status-text');
+    el.innerText = msg;
+    el.style.color = color;
+    console.log("DURUM:", msg);
+}
+
 function initPeer() {
-    // PeerJS sunucusuna bağlan
-    peer = new Peer(); 
+    updateStatus("SUNUCUYA BAĞLANILIYOR...");
+    
+    // NETLIFY İÇİN GÜVENLİ BAĞLANTI AYARLARI (SECURE: TRUE)
+    peer = new Peer(null, {
+        debug: 2,
+        secure: true, 
+        sameSite: 'none'
+    });
     
     peer.on('open', (id) => {
         document.getElementById('my-id').innerText = id;
-        document.getElementById('status-text').innerText = "HAZIR (ID BEKLENİYOR)";
+        updateStatus("HAZIR (ID BEKLENİYOR)", "#00e5ff");
     });
 
-    // HOST TARAFI: Birisi bana bağlandığında
+    peer.on('error', (err) => {
+        updateStatus("HATA: " + err.type, "red");
+        alert("Bağlantı Hatası: " + err.type);
+    });
+
+    // HOST MANTIĞI
     peer.on('connection', (connection) => {
         conn = connection;
         IS_HOST = true;
+        updateStatus("BİRİSİ BAĞLANIYOR...", "yellow");
         
-        document.getElementById('status-text').innerText = "BİRİSİ BAĞLANIYOR...";
-        
-        // Veri kanalını dinle
+        conn.on('open', () => {
+            updateStatus("BAĞLANTI KURULDU! OYUN BAŞLATILIYOR...", "#00ff00");
+            
+            // Otomatik başlatmayı dene
+            setTimeout(() => {
+                triggerGameStart();
+            }, 1000);
+        });
+
         conn.on('data', (data) => {
-            // 1. MİSAFİR "BEN HAZIRIM" DEDİ Mİ?
-            if (data.type === 'READY_TO_START') {
-                VS_AI = false;
-                IS_ONLINE = true;
-                
-                // Host oyunu başlatır
-                startGame();
-                
-                // Misafire de "Sen de Başla" emri gönderir
-                conn.send({ type: 'START_GAME_NOW' });
-            }
-            // Oyun içi veriler
-            else {
+            if(data.type === 'input') {
                 handleNetworkData(data);
             }
         });
@@ -122,33 +134,50 @@ function initPeer() {
 }
 
 window.joinGame = function() {
-    const friendId = document.getElementById('friend-id').value;
+    const friendId = document.getElementById('friend-id').value.trim();
     if(!friendId) return alert("Lütfen bir ID gir!");
     
-    // Bağlan
-    conn = peer.connect(friendId);
-    IS_HOST = false;
+    updateStatus("BAĞLANILIYOR...", "yellow");
     
-    document.getElementById('status-text').innerText = "BAĞLANILIYOR...";
+    conn = peer.connect(friendId, {
+        reliable: true
+    });
+    
+    IS_HOST = false;
 
     conn.on('open', () => {
-        document.getElementById('status-text').innerText = "BAĞLANDI! ONAY BEKLENİYOR...";
-        document.getElementById('status-text').style.color = "#00ff00";
-
-        // 2. HOST'A "BEN GELDİM" SİNYALİ GÖNDER
-        conn.send({ type: 'READY_TO_START' });
-
-        // Host'tan "Başla" emri bekle
-        conn.on('data', (data) => {
-            if (data.type === 'START_GAME_NOW') {
-                VS_AI = false;
-                IS_ONLINE = true;
-                startGame();
-            } else {
-                handleNetworkData(data);
-            }
-        });
+        updateStatus("BAĞLANDI! HOST'UN BAŞLATMASI BEKLENİYOR...", "#00ff00");
     });
+
+    conn.on('data', (data) => {
+        if (data.type === 'START_GAME') {
+            VS_AI = false;
+            IS_ONLINE = true;
+            startGame();
+        } else if (data.type === 'input') {
+            handleNetworkData(data);
+        }
+    });
+
+    conn.on('error', (err) => {
+        updateStatus("BAĞLANTI KOPTU", "red");
+    });
+}
+
+// Oyunu başlatan tetikleyici (Hem kendine hem karşıya sinyal yollar)
+function triggerGameStart() {
+    if(IS_HOST && conn && conn.open) {
+        VS_AI = false;
+        IS_ONLINE = true;
+        
+        // Karşı tarafa başlat emri gönder
+        conn.send({ type: 'START_GAME' });
+        
+        // Kendinde başlat
+        startGame();
+    } else {
+        updateStatus("HATA: BAĞLANTI HAZIR DEĞİL", "red");
+    }
 }
 
 function sendData(data) {
@@ -211,7 +240,7 @@ function createRing() {
 }
 createRing();
 
-// --- KARAKTER SINIFI ---
+// --- KARAKTER ---
 class Boxer {
     constructor(color, xPos, isFacingRight) {
         this.color = color;
@@ -232,7 +261,6 @@ class Boxer {
         this.mesh.position.set(xPos, 0, 0);
         this.mesh.scale.set(1.2, 1.2, 1.2);
 
-        // Anatomik Parçalar
         const chestGeo = new THREE.BoxGeometry(1.0, 1.0, 0.6);
         const chestMat = new THREE.MeshStandardMaterial({ color: this.skinColor });
         this.chest = new THREE.Mesh(chestGeo, chestMat);
@@ -302,7 +330,6 @@ class Boxer {
     update(gravity, time) {
         if(this.dead) return;
         if(this.stamina < 100 && !this.isAttacking && !this.isBlocking) this.stamina += 0.2; 
-        
         const isTired = this.stamina <= 10;
         this.speed = isTired || this.isBlocking ? 0.05 : 0.12;
         this.shield.material.opacity = this.isBlocking ? 0.6 : 0;
@@ -371,27 +398,22 @@ class Boxer {
     attack(isUlti = false) {
         if (this.isAttacking || this.isBlocking || this.dead) return;
         if (!isUlti && this.stamina < 15) return;
-        
         this.isAttacking = true;
         if(!isUlti) this.stamina -= 15;
-        
-        const useRight = Math.random() > 0.5;
-        const activeArm = useRight ? this.rightArm : this.leftArm;
-        
+        const glove = Math.random()>0.5 ? this.rightGlove : this.leftGlove;
         if (isUlti) {
             this.ulti = 0; SoundManager.ulti();
-            activeArm.glove.scale.set(3,3,3); activeArm.glove.material.color.setHex(0x00ffff);
-            activeArm.rotation.x = -1.5; activeArm.elbow.rotation.x = 0; 
+            glove.scale.set(3,3,3); glove.material.color.setHex(0x00ffff);
+            glove.rotation.x = -1.5; glove.parent.elbow.rotation.x = 0; // Fix rotation
             setTimeout(() => {
-                activeArm.glove.scale.set(1,1,1); activeArm.glove.material.color.setHex(0xffffff);
+                glove.scale.set(1,1,1); glove.material.color.setHex(0xffffff);
                 this.isAttacking = false;
             }, 400);
         } else {
             SoundManager.swing();
-            activeArm.rotation.x = -1.5; activeArm.elbow.rotation.x = -0.2; 
-            this.chest.rotation.y = useRight ? -0.5 : 0.5;
+            glove.rotation.x = -1.5; glove.parent.elbow.rotation.x = -0.2; 
             setTimeout(() => {
-                this.isAttacking = false; this.chest.rotation.y = 0;
+                this.isAttacking = false;
             }, 150);
         }
     }
@@ -506,7 +528,7 @@ window.addEventListener('keyup', e => {
     }
 });
 
-// --- MOBİL DOKUNMATİK ---
+// --- MOBİL ---
 function setupMobileControls() {
     const buttons = [
         { id: 'btn-left', action: 'left' }, { id: 'btn-right', action: 'right' }, { id: 'btn-jump', action: 'jump' },
@@ -532,6 +554,21 @@ function triggerGameInput(action, isDown) {
     }
 }
 setupMobileControls();
+
+// --- YAPAY ZEKA ---
+function updateAI() {
+    if (!VS_AI || p2.dead || !gameActive || IS_ONLINE) return;
+    const dist = Math.abs(p1.mesh.position.x - p2.mesh.position.x);
+    p2.velocity.x = 0;
+    let attackRate = 0.01; let blockRate = 0.1;
+    if (AI_DIFFICULTY === 'normal') { attackRate = 0.03; blockRate = 0.4; } 
+    else if (AI_DIFFICULTY === 'hard') { attackRate = 0.06; blockRate = 0.8; }
+    if (dist > 2.5) { const dir = p1.mesh.position.x > p2.mesh.position.x ? 1 : -1; p2.velocity.x = p2.speed * dir; } 
+    else if (dist < 1.5) { const dir = p1.mesh.position.x > p2.mesh.position.x ? -1 : 1; p2.velocity.x = p2.speed * dir; }
+    if (dist < 3.5 && Math.random() < attackRate) p2.attack();
+    if (AI_DIFFICULTY !== 'easy' && p2.ulti >= 100 && dist < 4 && Math.random() < 0.1) p2.attack(true);
+    if (p1.isAttacking && Math.random() < blockRate) p2.isBlocking = true; else if (!p1.isAttacking) p2.isBlocking = false;
+}
 
 function checkHit(atk, def) {
     const range = atk.isUltiActive ? 5.0 : 3.5;
