@@ -11,7 +11,7 @@ let screenShake = 0;
 let round = 1;
 let scores = { p1: 0, p2: 0 };
 
-// --- BAĞLANTI DEĞİŞKENLERİ ---
+// --- BAĞLANTI ---
 let peer = null;
 let conn = null;
 
@@ -51,7 +51,11 @@ window.startLocalGame = function(difficulty) {
     VS_AI = true;
     IS_ONLINE = false;
     AI_DIFFICULTY = difficulty;
-    document.getElementById('p2-name-label').innerText = "BOT (" + difficulty.toUpperCase() + ")";
+    
+    // Tek kişilik modda isim güncellemesi (Hata korumalı)
+    const p2Label = document.getElementById('p2-name');
+    if(p2Label) p2Label.innerText = "BOT (" + difficulty.toUpperCase() + ")";
+    
     startGame();
 }
 
@@ -64,41 +68,42 @@ window.showOnlineMenu = function() {
 window.hideOnlineMenu = function() {
     document.getElementById('online-lobby').style.display = 'none';
     document.getElementById('menu-buttons').style.display = 'block';
-    // Bağlantıları temizle
-    if(conn) conn.close();
-    if(peer) peer.destroy();
-    peer = null;
 }
 
 window.startGame = function() {
-    document.getElementById('main-menu').style.display = 'none';
-    document.getElementById('game-hud').style.display = 'block';
+    // Menüyü kapat, oyunu aç
+    const menu = document.getElementById('main-menu');
+    const hud = document.getElementById('game-hud');
+    
+    if(menu) menu.style.display = 'none';
+    if(hud) hud.style.display = 'block';
+    
     try { SoundManager.init(); } catch (e) {}
     
+    // Online ise isimleri güncelle
     if(IS_ONLINE) {
-        document.getElementById('p1-name').innerText = IS_HOST ? "SEN (HOST)" : "RAKİP";
-        document.getElementById('p2-name-label').innerText = IS_HOST ? "RAKİP" : "SEN (CLIENT)";
+        const p1Label = document.getElementById('p1-name');
+        const p2Label = document.getElementById('p2-name');
+        if(p1Label) p1Label.innerText = IS_HOST ? "SEN (HOST)" : "RAKİP";
+        if(p2Label) p2Label.innerText = IS_HOST ? "RAKİP" : "SEN (CLIENT)";
     }
+
     startRound();
 };
 
-// --- GÜÇLENDİRİLMİŞ ONLINE MANTIK ---
+// --- ONLINE (PEERJS) ---
 function updateStatus(msg, color="white") {
     const el = document.getElementById('status-text');
-    el.innerText = msg;
-    el.style.color = color;
-    console.log("DURUM:", msg);
+    if(el) {
+        el.innerText = msg;
+        el.style.color = color;
+    }
 }
 
 function initPeer() {
     updateStatus("SUNUCUYA BAĞLANILIYOR...");
     
-    // NETLIFY İÇİN GÜVENLİ BAĞLANTI AYARLARI (SECURE: TRUE)
-    peer = new Peer(null, {
-        debug: 2,
-        secure: true, 
-        sameSite: 'none'
-    });
+    peer = new Peer(null, { debug: 1, secure: true, sameSite: 'none' });
     
     peer.on('open', (id) => {
         document.getElementById('my-id').innerText = id;
@@ -107,46 +112,36 @@ function initPeer() {
 
     peer.on('error', (err) => {
         updateStatus("HATA: " + err.type, "red");
-        alert("Bağlantı Hatası: " + err.type);
     });
 
-    // HOST MANTIĞI
     peer.on('connection', (connection) => {
         conn = connection;
         IS_HOST = true;
         updateStatus("BİRİSİ BAĞLANIYOR...", "yellow");
         
         conn.on('open', () => {
-            updateStatus("BAĞLANTI KURULDU! OYUN BAŞLATILIYOR...", "#00ff00");
-            
-            // Otomatik başlatmayı dene
+            updateStatus("OYUN BAŞLATILIYOR...", "#00ff00");
             setTimeout(() => {
                 triggerGameStart();
             }, 1000);
         });
 
         conn.on('data', (data) => {
-            if(data.type === 'input') {
-                handleNetworkData(data);
-            }
+            if(data.type === 'input') handleNetworkData(data);
         });
     });
 }
 
 window.joinGame = function() {
     const friendId = document.getElementById('friend-id').value.trim();
-    if(!friendId) return alert("Lütfen bir ID gir!");
+    if(!friendId) return alert("ID Giriniz!");
     
     updateStatus("BAĞLANILIYOR...", "yellow");
-    
-    conn = peer.connect(friendId, {
-        reliable: true
-    });
-    
+    conn = peer.connect(friendId);
     IS_HOST = false;
 
     conn.on('open', () => {
-        updateStatus("BAĞLANDI! HOST'UN BAŞLATMASI BEKLENİYOR...", "#00ff00");
+        updateStatus("BAĞLANDI! OYUN BEKLENİYOR...", "#00ff00");
     });
 
     conn.on('data', (data) => {
@@ -158,32 +153,21 @@ window.joinGame = function() {
             handleNetworkData(data);
         }
     });
-
-    conn.on('error', (err) => {
-        updateStatus("BAĞLANTI KOPTU", "red");
-    });
+    
+    conn.on('error', (err) => updateStatus("HATA", "red"));
 }
 
-// Oyunu başlatan tetikleyici (Hem kendine hem karşıya sinyal yollar)
 function triggerGameStart() {
     if(IS_HOST && conn && conn.open) {
         VS_AI = false;
         IS_ONLINE = true;
-        
-        // Karşı tarafa başlat emri gönder
         conn.send({ type: 'START_GAME' });
-        
-        // Kendinde başlat
         startGame();
-    } else {
-        updateStatus("HATA: BAĞLANTI HAZIR DEĞİL", "red");
     }
 }
 
 function sendData(data) {
-    if(IS_ONLINE && conn && conn.open) {
-        conn.send(data);
-    }
+    if(IS_ONLINE && conn && conn.open) conn.send(data);
 }
 
 function handleNetworkData(data) {
@@ -196,10 +180,10 @@ function handleNetworkData(data) {
 window.copyId = function() {
     const idText = document.getElementById('my-id').innerText;
     navigator.clipboard.writeText(idText);
-    alert("ID Kopyalandı!");
+    alert("Kopyalandı!");
 }
 
-// --- THREE.JS SAHNE ---
+// --- THREE.JS ---
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 1000);
 camera.position.set(0, 5, 22); 
@@ -404,7 +388,7 @@ class Boxer {
         if (isUlti) {
             this.ulti = 0; SoundManager.ulti();
             glove.scale.set(3,3,3); glove.material.color.setHex(0x00ffff);
-            glove.rotation.x = -1.5; glove.parent.elbow.rotation.x = 0; // Fix rotation
+            glove.rotation.x = -1.5; glove.parent.elbow.rotation.x = 0; 
             setTimeout(() => {
                 glove.scale.set(1,1,1); glove.material.color.setHex(0xffffff);
                 this.isAttacking = false;
@@ -412,8 +396,9 @@ class Boxer {
         } else {
             SoundManager.swing();
             glove.rotation.x = -1.5; glove.parent.elbow.rotation.x = -0.2; 
+            this.chest.rotation.y = Math.random() > 0.5 ? -0.5 : 0.5;
             setTimeout(() => {
-                this.isAttacking = false;
+                this.isAttacking = false; this.chest.rotation.y = 0;
             }, 150);
         }
     }
