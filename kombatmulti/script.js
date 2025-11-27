@@ -11,7 +11,7 @@ let screenShake = 0;
 let round = 1;
 let scores = { p1: 0, p2: 0 };
 
-// --- BAĞLANTI DEĞİŞKENLERİ ---
+// --- ONLINE BAĞLANTI DEĞİŞKENLERİ ---
 let peer = null;
 let conn = null;
 
@@ -46,17 +46,12 @@ const SoundManager = {
     ulti: () => { SoundManager.playTone(50, 'sawtooth', 0.5, 0.3); SoundManager.playNoise(0.5); }
 };
 
-// --- MENÜ YÖNETİMİ (DÜZELTİLDİ) ---
-// Bu fonksiyonlar HTML butonları tarafından çağrılır
+// --- MENÜ YÖNETİMİ ---
 window.startLocalGame = function(difficulty) {
     VS_AI = true;
     IS_ONLINE = false;
     AI_DIFFICULTY = difficulty;
-    
-    // P2 ismini güncelle
-    const p2Name = document.getElementById('p2-name');
-    if(p2Name) p2Name.innerText = "BOT (" + difficulty.toUpperCase() + ")";
-    
+    document.getElementById('p2-name-label').innerText = "BOT (" + difficulty.toUpperCase() + ")";
     startGame();
 }
 
@@ -72,16 +67,108 @@ window.hideOnlineMenu = function() {
 }
 
 window.startGame = function() {
-    // Menüyü gizle
+    // Menüyü Gizle
     document.getElementById('main-menu').style.display = 'none';
     document.getElementById('game-hud').style.display = 'block';
-
-    // Sesi başlatmaya çalış (Hata verirse oyunu durdurmasın)
+    
+    // Ses
     try { SoundManager.init(); } catch (e) {}
     
-    // Oyunu başlat
+    // İsimleri Ayarla
+    if(IS_ONLINE) {
+        document.getElementById('p1-name').innerText = IS_HOST ? "SEN (HOST)" : "RAKİP";
+        document.getElementById('p2-name-label').innerText = IS_HOST ? "RAKİP" : "SEN (CLIENT)";
+    }
+
     startRound();
 };
+
+// --- ONLINE MANTIK (GÜNCELLENMİŞ HANDSHAKE) ---
+function initPeer() {
+    // PeerJS sunucusuna bağlan
+    peer = new Peer(); 
+    
+    peer.on('open', (id) => {
+        document.getElementById('my-id').innerText = id;
+        document.getElementById('status-text').innerText = "HAZIR (ID BEKLENİYOR)";
+    });
+
+    // HOST TARAFI: Birisi bana bağlandığında
+    peer.on('connection', (connection) => {
+        conn = connection;
+        IS_HOST = true;
+        
+        document.getElementById('status-text').innerText = "BİRİSİ BAĞLANIYOR...";
+        
+        // Veri kanalını dinle
+        conn.on('data', (data) => {
+            // 1. MİSAFİR "BEN HAZIRIM" DEDİ Mİ?
+            if (data.type === 'READY_TO_START') {
+                VS_AI = false;
+                IS_ONLINE = true;
+                
+                // Host oyunu başlatır
+                startGame();
+                
+                // Misafire de "Sen de Başla" emri gönderir
+                conn.send({ type: 'START_GAME_NOW' });
+            }
+            // Oyun içi veriler
+            else {
+                handleNetworkData(data);
+            }
+        });
+    });
+}
+
+window.joinGame = function() {
+    const friendId = document.getElementById('friend-id').value;
+    if(!friendId) return alert("Lütfen bir ID gir!");
+    
+    // Bağlan
+    conn = peer.connect(friendId);
+    IS_HOST = false;
+    
+    document.getElementById('status-text').innerText = "BAĞLANILIYOR...";
+
+    conn.on('open', () => {
+        document.getElementById('status-text').innerText = "BAĞLANDI! ONAY BEKLENİYOR...";
+        document.getElementById('status-text').style.color = "#00ff00";
+
+        // 2. HOST'A "BEN GELDİM" SİNYALİ GÖNDER
+        conn.send({ type: 'READY_TO_START' });
+
+        // Host'tan "Başla" emri bekle
+        conn.on('data', (data) => {
+            if (data.type === 'START_GAME_NOW') {
+                VS_AI = false;
+                IS_ONLINE = true;
+                startGame();
+            } else {
+                handleNetworkData(data);
+            }
+        });
+    });
+}
+
+function sendData(data) {
+    if(IS_ONLINE && conn && conn.open) {
+        conn.send(data);
+    }
+}
+
+function handleNetworkData(data) {
+    if(data.type === 'input') {
+        const targetPlayer = IS_HOST ? p2 : p1; 
+        handleInput(targetPlayer, data.key, data.isDown);
+    }
+}
+
+window.copyId = function() {
+    const idText = document.getElementById('my-id').innerText;
+    navigator.clipboard.writeText(idText);
+    alert("ID Kopyalandı!");
+}
 
 // --- THREE.JS SAHNE ---
 const scene = new THREE.Scene();
@@ -124,46 +211,40 @@ function createRing() {
 }
 createRing();
 
-// --- GELİŞMİŞ KARAKTER SINIFI (EKLEMLİ) ---
+// --- KARAKTER SINIFI ---
 class Boxer {
     constructor(color, xPos, isFacingRight) {
         this.color = color;
-        this.skinColor = 0xffccaa; // Ten Rengi
+        this.skinColor = 0xffccaa;
         this.hp = 100;
         this.stamina = 100;
         this.ulti = 0;
         this.dead = false;
-        
         this.velocity = { x: 0, y: 0 };
         this.isGrounded = false;
         this.speed = 0.12;
         this.jumpPower = 0.35;
         this.facing = isFacingRight ? 1 : -1;
-        
         this.isAttacking = false;
         this.isBlocking = false;
         
-        // --- İSKELET YAPISI ---
         this.mesh = new THREE.Group();
         this.mesh.position.set(xPos, 0, 0);
         this.mesh.scale.set(1.2, 1.2, 1.2);
 
-        // 1. GÖVDE (TORSO)
+        // Anatomik Parçalar
         const chestGeo = new THREE.BoxGeometry(1.0, 1.0, 0.6);
         const chestMat = new THREE.MeshStandardMaterial({ color: this.skinColor });
         this.chest = new THREE.Mesh(chestGeo, chestMat);
-        this.chest.position.y = 2.3;
-        this.chest.castShadow = true;
+        this.chest.position.y = 2.3; this.chest.castShadow = true;
         this.mesh.add(this.chest);
 
-        // Karın (Şort Rengi)
         const absGeo = new THREE.BoxGeometry(0.9, 0.8, 0.55);
         const absMat = new THREE.MeshStandardMaterial({ color: color });
         this.abs = new THREE.Mesh(absGeo, absMat);
         this.abs.position.y = -0.9;
         this.chest.add(this.abs);
 
-        // 2. KAFA
         const headGeo = new THREE.BoxGeometry(0.5, 0.6, 0.55);
         const headMat = new THREE.MeshStandardMaterial({ color: this.skinColor });
         this.head = new THREE.Mesh(headGeo, headMat);
@@ -176,28 +257,13 @@ class Boxer {
         const eye2 = new THREE.Mesh(eyeGeo, eyeMat); eye2.position.set(-0.15, 0.1, 0.28);
         this.head.add(eye1); this.head.add(eye2);
 
-        // 3. KOLLAR
-        this.leftArm = this.createArm(true);
-        this.leftArm.position.set(0.65, 0.3, 0);
-        this.chest.add(this.leftArm);
+        this.leftArm = this.createArm(true); this.leftArm.position.set(0.65, 0.3, 0); this.chest.add(this.leftArm);
+        this.rightArm = this.createArm(false); this.rightArm.position.set(-0.65, 0.3, 0); this.chest.add(this.rightArm);
+        this.leftLeg = this.createLeg(true); this.leftLeg.position.set(0.3, -1.4, 0); this.abs.add(this.leftLeg);
+        this.rightLeg = this.createLeg(false); this.rightLeg.position.set(-0.3, -1.4, 0); this.abs.add(this.rightLeg);
 
-        this.rightArm = this.createArm(false);
-        this.rightArm.position.set(-0.65, 0.3, 0);
-        this.chest.add(this.rightArm);
-
-        // 4. BACAKLAR
-        this.leftLeg = this.createLeg(true);
-        this.leftLeg.position.set(0.3, -1.4, 0);
-        this.abs.add(this.leftLeg);
-
-        this.rightLeg = this.createLeg(false);
-        this.rightLeg.position.set(-0.3, -1.4, 0);
-        this.abs.add(this.rightLeg);
-
-        // EFEKTLER
         this.shield = new THREE.Mesh(new THREE.RingGeometry(0.8, 1.0, 32), new THREE.MeshBasicMaterial({ color: 0xffff00, side: THREE.DoubleSide, transparent: true, opacity: 0 }));
-        this.shield.position.set(0, 0, 1);
-        this.chest.add(this.shield);
+        this.shield.position.set(0, 0, 1); this.chest.add(this.shield);
 
         const auraGeo = new THREE.CylinderGeometry(1, 1, 4, 16, 1, true);
         const auraMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0, side: THREE.DoubleSide });
@@ -209,85 +275,48 @@ class Boxer {
 
     createArm(isLeft) {
         const shoulder = new THREE.Group();
-        
-        const upperGeo = new THREE.CylinderGeometry(0.18, 0.16, 0.7);
-        const limbMat = new THREE.MeshStandardMaterial({ color: this.skinColor });
-        const upper = new THREE.Mesh(upperGeo, limbMat);
-        upper.position.y = -0.35; 
-        shoulder.add(upper);
-
-        const elbow = new THREE.Group();
-        elbow.position.y = -0.35;
-        upper.add(elbow);
-
-        const lowerGeo = new THREE.CylinderGeometry(0.15, 0.12, 0.6);
-        const lower = new THREE.Mesh(lowerGeo, limbMat);
-        lower.position.y = -0.3;
-        elbow.add(lower);
-
-        const gloveGeo = new THREE.BoxGeometry(0.35, 0.35, 0.4);
-        const gloveMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
-        const glove = new THREE.Mesh(gloveGeo, gloveMat);
-        glove.position.y = -0.4;
-        lower.add(glove);
-
-        shoulder.elbow = elbow;
-        shoulder.glove = glove;
+        const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.16, 0.7), new THREE.MeshStandardMaterial({ color: this.skinColor }));
+        upper.position.y = -0.35; shoulder.add(upper);
+        const elbow = new THREE.Group(); elbow.position.y = -0.35; upper.add(elbow);
+        const lower = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.12, 0.6), new THREE.MeshStandardMaterial({ color: this.skinColor }));
+        lower.position.y = -0.3; elbow.add(lower);
+        const glove = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.35, 0.4), new THREE.MeshStandardMaterial({ color: 0xffffff }));
+        glove.position.y = -0.4; lower.add(glove);
+        shoulder.elbow = elbow; shoulder.glove = glove;
         return shoulder;
     }
 
     createLeg(isLeft) {
         const hip = new THREE.Group();
-
-        const thighGeo = new THREE.CylinderGeometry(0.22, 0.18, 0.8);
-        const thighMat = new THREE.MeshStandardMaterial({ color: this.color });
-        const thigh = new THREE.Mesh(thighGeo, thighMat);
-        thigh.position.y = -0.4;
-        hip.add(thigh);
-
-        const knee = new THREE.Group();
-        knee.position.y = -0.4;
-        thigh.add(knee);
-
-        const shinGeo = new THREE.CylinderGeometry(0.18, 0.15, 0.8);
-        const skinMat = new THREE.MeshStandardMaterial({ color: this.skinColor });
-        const shin = new THREE.Mesh(shinGeo, skinMat);
-        shin.position.y = -0.4;
-        knee.add(shin);
-
-        const footGeo = new THREE.BoxGeometry(0.25, 0.15, 0.4);
-        const footMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
-        const foot = new THREE.Mesh(footGeo, footMat);
-        foot.position.set(0, -0.45, 0.1);
-        shin.add(foot);
-
+        const thigh = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.18, 0.8), new THREE.MeshStandardMaterial({ color: this.color }));
+        thigh.position.y = -0.4; hip.add(thigh);
+        const knee = new THREE.Group(); knee.position.y = -0.4; thigh.add(knee);
+        const shin = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.15, 0.8), new THREE.MeshStandardMaterial({ color: this.skinColor }));
+        shin.position.y = -0.4; knee.add(shin);
+        const foot = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.15, 0.4), new THREE.MeshStandardMaterial({ color: 0x111111 }));
+        foot.position.set(0, -0.45, 0.1); shin.add(foot);
         hip.knee = knee;
         return hip;
     }
 
     update(gravity, time) {
         if(this.dead) return;
-        
         if(this.stamina < 100 && !this.isAttacking && !this.isBlocking) this.stamina += 0.2; 
+        
         const isTired = this.stamina <= 10;
         this.speed = isTired || this.isBlocking ? 0.05 : 0.12;
         this.shield.material.opacity = this.isBlocking ? 0.6 : 0;
         
-        // ANİMASYONLAR
         let targetLeftArmRot = { x: 0, z: 0 };
         let targetRightArmRot = { x: 0, z: 0 };
-        let targetLeftElbow = -2.5;
-        let targetRightElbow = -2.5;
+        let targetLeftElbow = -2.5; let targetRightElbow = -2.5;
 
         if (this.isBlocking) {
-            targetLeftArmRot = { x: -0.5, z: 0.5 };
-            targetRightArmRot = { x: -0.5, z: -0.5 };
+            targetLeftArmRot = { x: -0.5, z: 0.5 }; targetRightArmRot = { x: -0.5, z: -0.5 };
         } else if (!this.isAttacking) {
             const breath = Math.sin(time * 5) * 0.1;
-            targetLeftArmRot = { x: 0.5 + breath, z: 0.2 };
-            targetRightArmRot = { x: 0.5 + breath, z: -0.2 };
-            targetLeftElbow = -2.0;
-            targetRightElbow = -2.0;
+            targetLeftArmRot = { x: 0.5 + breath, z: 0.2 }; targetRightArmRot = { x: 0.5 + breath, z: -0.2 };
+            targetLeftElbow = -2.0; targetRightElbow = -2.0;
         }
 
         if (Math.abs(this.velocity.x) > 0.01 && this.isGrounded) {
@@ -299,10 +328,8 @@ class Boxer {
             targetLeftArmRot.x += Math.cos(time * walkSpeed) * 0.3;
             targetRightArmRot.x += Math.sin(time * walkSpeed) * 0.3;
         } else {
-            this.leftLeg.rotation.x = 0;
-            this.rightLeg.rotation.x = 0;
-            this.leftLeg.knee.rotation.x = 0;
-            this.rightLeg.knee.rotation.x = 0;
+            this.leftLeg.rotation.x = 0; this.rightLeg.rotation.x = 0;
+            this.leftLeg.knee.rotation.x = 0; this.rightLeg.knee.rotation.x = 0;
         }
 
         if(!this.isAttacking) {
@@ -344,32 +371,27 @@ class Boxer {
     attack(isUlti = false) {
         if (this.isAttacking || this.isBlocking || this.dead) return;
         if (!isUlti && this.stamina < 15) return;
-
+        
         this.isAttacking = true;
         if(!isUlti) this.stamina -= 15;
-
+        
         const useRight = Math.random() > 0.5;
         const activeArm = useRight ? this.rightArm : this.leftArm;
         
         if (isUlti) {
             this.ulti = 0; SoundManager.ulti();
-            activeArm.glove.scale.set(3,3,3); 
-            activeArm.glove.material.color.setHex(0x00ffff);
-            activeArm.rotation.x = -1.5;
-            activeArm.elbow.rotation.x = 0; 
+            activeArm.glove.scale.set(3,3,3); activeArm.glove.material.color.setHex(0x00ffff);
+            activeArm.rotation.x = -1.5; activeArm.elbow.rotation.x = 0; 
             setTimeout(() => {
-                activeArm.glove.scale.set(1,1,1); 
-                activeArm.glove.material.color.setHex(0xffffff);
+                activeArm.glove.scale.set(1,1,1); activeArm.glove.material.color.setHex(0xffffff);
                 this.isAttacking = false;
             }, 400);
         } else {
             SoundManager.swing();
-            activeArm.rotation.x = -1.5;
-            activeArm.elbow.rotation.x = -0.2; 
+            activeArm.rotation.x = -1.5; activeArm.elbow.rotation.x = -0.2; 
             this.chest.rotation.y = useRight ? -0.5 : 0.5;
             setTimeout(() => {
-                this.isAttacking = false;
-                this.chest.rotation.y = 0;
+                this.isAttacking = false; this.chest.rotation.y = 0;
             }, 150);
         }
     }
@@ -386,19 +408,15 @@ class Boxer {
         this.hp -= dmg; this.ulti += 15;
         if(this.ulti > 100) this.ulti = 100;
         createParticles(this.mesh.position.x, 2, 0xcc0000);
-
         const push = attackerX < this.mesh.position.x ? 1 : -1;
         this.velocity.x = push * (isUltiHit ? 1.0 : 0.2);
         this.velocity.y = isUltiHit ? 0.5 : 0.2;
-        
-        this.head.rotation.x = -0.5;
-        setTimeout(() => this.head.rotation.x = 0, 200);
-        this.chest.material.color.setHex(0xffffff);
-        setTimeout(() => this.chest.material.color.set(this.skinColor), 100);
+        this.head.rotation.x = -0.5; setTimeout(() => this.head.rotation.x = 0, 200);
+        this.chest.material.color.setHex(0xffffff); setTimeout(() => this.chest.material.color.set(this.skinColor), 100);
     }
 }
 
-// --- OYUN DÖNGÜSÜ & KONTROLLER ---
+// --- DÖNGÜLER ---
 function startRound() {
     if(p1) scene.remove(p1.mesh);
     if(p2) scene.remove(p2.mesh);
@@ -408,7 +426,6 @@ function startRound() {
     document.getElementById('msg-overlay').style.display = 'none';
     updateHUD();
 }
-
 function endRound(loser) {
     gameActive = false;
     const msg = document.getElementById('msg-overlay');
@@ -423,7 +440,6 @@ function endRound(loser) {
         setTimeout(() => { round++; document.getElementById('round-num').innerText = round; msg.innerText = "ROUND " + round; setTimeout(startRound, 2000); }, 2000);
     }
 }
-
 function updateHUD() {
     if(!p1 || !p2) return;
     document.getElementById('p1-hp').style.width = Math.max(0, p1.hp) + '%';
@@ -436,7 +452,7 @@ function updateHUD() {
     p2.ulti >= 100 ? u2.parentElement.classList.add('ulti-ready') : u2.parentElement.classList.remove('ulti-ready');
 }
 
-// --- KONTROLLER (Ortak) ---
+// --- KONTROLLER ---
 function handleInput(player, key, isDown) {
     if(isDown) {
         if(key==='left') player.velocity.x = -player.speed;
@@ -451,7 +467,6 @@ function handleInput(player, key, isDown) {
     }
 }
 
-// Klavye Dinleyicileri
 window.addEventListener('keydown', e => {
     if(!gameActive) return;
     let myAction = null;
@@ -518,71 +533,6 @@ function triggerGameInput(action, isDown) {
 }
 setupMobileControls();
 
-// --- YAPAY ZEKA ---
-function updateAI() {
-    if (!VS_AI || p2.dead || !gameActive || IS_ONLINE) return;
-    const dist = Math.abs(p1.mesh.position.x - p2.mesh.position.x);
-    p2.velocity.x = 0;
-    let attackRate = 0.01; let blockRate = 0.1;
-    if (AI_DIFFICULTY === 'normal') { attackRate = 0.03; blockRate = 0.4; } 
-    else if (AI_DIFFICULTY === 'hard') { attackRate = 0.06; blockRate = 0.8; }
-    if (dist > 2.5) { const dir = p1.mesh.position.x > p2.mesh.position.x ? 1 : -1; p2.velocity.x = p2.speed * dir; } 
-    else if (dist < 1.5) { const dir = p1.mesh.position.x > p2.mesh.position.x ? -1 : 1; p2.velocity.x = p2.speed * dir; }
-    if (dist < 3.5 && Math.random() < attackRate) p2.attack();
-    if (AI_DIFFICULTY !== 'easy' && p2.ulti >= 100 && dist < 4 && Math.random() < 0.1) p2.attack(true);
-    if (p1.isAttacking && Math.random() < blockRate) p2.isBlocking = true; else if (!p1.isAttacking) p2.isBlocking = false;
-}
-
-// --- ONLINE MANTIK (PEERJS) ---
-function initPeer() {
-    peer = new Peer(); 
-    peer.on('open', (id) => {
-        document.getElementById('my-id').innerText = id;
-        document.getElementById('status-text').innerText = "HAZIR (ID BEKLENİYOR)";
-    });
-    peer.on('connection', (connection) => {
-        conn = connection;
-        IS_HOST = true;
-        setupConnection();
-    });
-}
-window.joinGame = function() {
-    const friendId = document.getElementById('friend-id').value;
-    if(!friendId) return alert("Lütfen bir ID gir!");
-    conn = peer.connect(friendId);
-    IS_HOST = false;
-    setupConnection();
-}
-function setupConnection() {
-    document.getElementById('status-text').innerText = "BAĞLANDI! OYUN BAŞLIYOR...";
-    document.getElementById('status-text').style.color = "#00ff00";
-    
-    conn.on('open', () => {
-        conn.on('data', (data) => {
-            if(data.type === 'input') {
-                const targetPlayer = IS_HOST ? p2 : p1; 
-                handleInput(targetPlayer, data.key, data.isDown);
-            }
-        });
-        setTimeout(() => {
-            VS_AI = false;
-            IS_ONLINE = true;
-            document.getElementById('p1-name').innerText = IS_HOST ? "SEN (HOST)" : "RAKİP";
-            document.getElementById('p2-name').innerText = IS_HOST ? "RAKİP" : "SEN (CLIENT)";
-            startGame();
-        }, 1000);
-    });
-}
-function sendData(data) {
-    if(IS_ONLINE && conn && conn.open) { conn.send(data); }
-}
-window.copyId = function() {
-    const idText = document.getElementById('my-id').innerText;
-    navigator.clipboard.writeText(idText);
-    alert("ID Kopyalandı!");
-}
-
-// --- OYUN DÖNGÜSÜ ---
 function checkHit(atk, def) {
     const range = atk.isUltiActive ? 5.0 : 3.5;
     const dist = Math.abs(atk.mesh.position.x - def.mesh.position.x);
