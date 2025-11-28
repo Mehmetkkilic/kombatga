@@ -1,58 +1,36 @@
-// --- 1. AYARLAR VE DEĞİŞKENLER ---
-let VS_AI = true;
-let IS_ONLINE = false;
-let IS_HOST = false;
-let AI_DIFFICULTY = 'normal';
+// --- 1. AYARLAR ---
+let VS_AI = true, IS_ONLINE = false, IS_HOST = false, AI_DIFFICULTY = 'normal';
 const WIN_SCORE = 3;
-let gameActive = false;
-let p1, p2; // Oyuncu nesneleri
-let particles = [];
-let screenShake = 0;
-let round = 1;
-let scores = { p1: 0, p2: 0 };
+let gameActive = false, p1, p2, particles = [], screenShake = 0, round = 1, scores = { p1: 0, p2: 0 };
 let peer = null, conn = null;
 
 // --- 2. MENÜ YÖNETİMİ ---
 window.startLocalGame = function(diff) {
-    VS_AI = true; 
-    IS_ONLINE = false; 
-    AI_DIFFICULTY = diff;
-    const p2Label = document.getElementById('p2-name');
-    if(p2Label) p2Label.innerText = "BOT (" + diff.toUpperCase() + ")";
+    VS_AI = true; IS_ONLINE = false; AI_DIFFICULTY = diff;
+    document.getElementById('p2-name').innerText = "BOT (" + diff.toUpperCase() + ")";
     startGame();
 }
-
 window.showOnlineMenu = function() {
     document.getElementById('menu-buttons').style.display = 'none';
     document.getElementById('online-lobby').style.display = 'block';
     if (!peer) initPeer();
 }
-
 window.hideOnlineMenu = function() {
     document.getElementById('online-lobby').style.display = 'none';
     document.getElementById('menu-buttons').style.display = 'block';
 }
-
 window.startGame = function() {
-    // Menüleri gizle, oyunu aç
     document.getElementById('main-menu').style.display = 'none';
     document.getElementById('game-hud').style.display = 'block';
-    
-    // Online ise isimleri güncelle
     if (IS_ONLINE) {
-        const p1Name = document.getElementById('p1-name');
-        const p2Name = document.getElementById('p2-name');
-        if(p1Name) p1Name.innerText = IS_HOST ? "SEN (HOST)" : "RAKİP";
-        if(p2Name) p2Name.innerText = IS_HOST ? "RAKİP" : "SEN (CLIENT)";
+        document.getElementById('p1-name').innerText = IS_HOST ? "SEN (HOST)" : "RAKİP";
+        document.getElementById('p2-name').innerText = IS_HOST ? "RAKİP" : "SEN (CLIENT)";
     }
-    
-    // Ses motorunu başlatmayı dene
     try { SoundManager.init(); } catch (e) {}
-    
     startRound();
 }
 
-// --- 3. SES MOTORU ---
+// --- 3. SES ---
 const AudioContext = window.AudioContext || window.webkitAudioContext;
 const audioCtx = new AudioContext();
 const SoundManager = {
@@ -69,11 +47,12 @@ const SoundManager = {
     ulti: () => SoundManager.playTone(50, 'sawtooth', 0.4)
 };
 
-// --- 4. 3D SAHNE KURULUMU ---
+// --- 4. 3D SAHNE ---
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.set(0, 6, 24); 
-const originalCamPos = { x: 0, y: 6, z: 24 }; // Kamerayı sabitledik
+// Kamera pozisyonunu sabitledim ve biraz daha yukarı aldım
+camera.position.set(0, 7, 26);
+const originalCamPos = { x: 0, y: 7, z: 26 };
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -83,7 +62,7 @@ document.body.appendChild(renderer.domElement);
 scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 const dl = new THREE.DirectionalLight(0xffffff, 1.0); dl.position.set(10, 20, 10); dl.castShadow = true; scene.add(dl);
 
-// Ring Oluşturma
+// Ring
 const g = new THREE.Group();
 const base = new THREE.Mesh(new THREE.CylinderGeometry(16, 14, 2, 8), new THREE.MeshStandardMaterial({ color: 0x333333 })); base.position.y = -1.5; base.receiveShadow = true; g.add(base);
 const cvs = new THREE.Mesh(new THREE.BoxGeometry(17, 0.5, 17), new THREE.MeshStandardMaterial({ color: 0xeeeeee })); cvs.position.y = -0.25; cvs.receiveShadow = true; g.add(cvs);
@@ -97,14 +76,14 @@ const rGeo = new THREE.CylinderGeometry(0.08, 0.08, 17, 8); const rMat = new THR
 });
 scene.add(g);
 
-// --- 5. KARAKTER SINIFI (DÜZELTİLMİŞ) ---
+// --- 5. KARAKTER SINIFI (KAFA DÜZELTİLDİ) ---
 class Boxer {
     constructor(color, x, facing) {
         this.color = color; this.skin = 0xffccaa; this.hp = 100; this.stamina = 100; this.ulti = 0; this.dead = false;
         this.vel = { x: 0, y: 0 }; this.isGrounded = false; this.speed = 0.12; this.jumpP = 0.35; this.facing = facing ? 1 : -1;
         this.isAttacking = false; this.isBlocking = false;
         
-        // Karakterin ana grubu (Yükseklik ayarı yapıldı, ayaklar yere bassın diye y=2.0)
+        // Karakter Yüksekliği
         this.mesh = new THREE.Group(); this.mesh.position.set(x, 2.0, 0); this.mesh.scale.set(1.3, 1.3, 1.3);
 
         // Gövde
@@ -115,10 +94,12 @@ class Boxer {
         const abs = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.7, 0.58), new THREE.MeshStandardMaterial({ color: color })); 
         abs.position.y = -0.8; chest.add(abs);
 
-        // Kafa (YÜKSELTİLDİ - Artık gömülü değil)
+        // KAFA (YUKARI KALDIRILDI)
         const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.6, 0.55), new THREE.MeshStandardMaterial({ color: this.skin })); 
-        head.position.y = 1.0; 
+        head.position.y = 1.3; // 0.9'dan 1.3'e çekildi, artık gömülmüyor
         chest.add(head); this.head = head;
+        
+        // Gözler
         head.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.05, 0.05), new THREE.MeshBasicMaterial({ color: 0x000 }))).position.set(0.15, 0.1, 0.28);
         head.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.05, 0.05), new THREE.MeshBasicMaterial({ color: 0x000 }))).position.set(-0.15, 0.1, 0.28);
 
@@ -163,7 +144,7 @@ class Boxer {
 
         this.mesh.position.x += this.vel.x; this.mesh.position.y += this.vel.y;
         
-        // Yer Kontrolü (Ayaklar zemin üstünde)
+        // Yer Kontrolü
         if (this.mesh.position.y + this.vel.y <= 2.0) { 
             this.vel.y = 0; 
             this.mesh.position.y = 2.0; 
@@ -175,13 +156,12 @@ class Boxer {
 
         if (this.mesh.position.x < -8.5) this.mesh.position.x = -8.5; if (this.mesh.position.x > 8.5) this.mesh.position.x = 8.5;
 
-        // Yönü Rakibe Çevir (DÜZELTİLDİ: Sırt dönme engellendi)
+        // Yönü Rakibe Çevir
         if(opponent) {
             this.facing = opponent.mesh.position.x > this.mesh.position.x ? 1 : -1;
         }
         this.mesh.rotation.y = this.facing === 1 ? Math.PI / 2 : -Math.PI / 2;
 
-        // Animasyonlar
         let ra = { x: 0 }, la = { x: 0 };
         if (this.isBlocking) { ra.x = -0.5; la.x = -0.5; }
         else if (!this.isAttacking && Math.abs(this.vel.x) > 0.01 && this.isGrounded) {
@@ -237,11 +217,11 @@ function updateHUD() {
     document.getElementById('p1-stamina').style.width = p1.stamina + '%'; document.getElementById('p2-stamina').style.width = p2.stamina + '%';
     const u1 = document.getElementById('p1-ulti'); const u2 = document.getElementById('p2-ulti');
     u1.style.width = p1.ulti + '%'; u2.style.width = p2.ulti + '%';
-    p1.ulti >= 100 ? u1.parentElement.classList.add('ulti-ready') : u1.parentElement.classList.remove('ulti-ready');
-    p2.ulti >= 100 ? u2.parentElement.classList.add('ulti-ready') : u2.parentElement.classList.remove('ulti-ready');
+    p1.ulti >= 100 ? document.getElementById('p1-ulti').parentElement.classList.add('ulti-ready') : document.getElementById('p1-ulti').parentElement.classList.remove('ulti-ready');
+    p2.ulti >= 100 ? document.getElementById('p2-ulti').parentElement.classList.add('ulti-ready') : document.getElementById('p2-ulti').parentElement.classList.remove('ulti-ready');
 }
 
-// --- 7. KONTROLLER (Düzeltildi: Sol, Sağ, Yukarı, D, S, A) ---
+// --- 7. KONTROLLER (DÜZELTİLDİ: A=Ulti, S=Savunma, D=Yumruk) ---
 function handleInput(pl, k, d) {
     if (d) {
         if (k === 'left') pl.vel.x = -pl.speed; 
@@ -264,9 +244,11 @@ window.addEventListener('keydown', e => {
     if (e.key === 'ArrowRight') act = 'right';
     if (e.key === 'ArrowLeft') act = 'left';
     if (e.key === 'ArrowUp') act = 'jump';
-    if (e.key === 'd' || e.key === 'D') act = 'attack'; // Yumruk
-    if (e.key === 's' || e.key === 'S') act = 'block';  // Blok
-    if (e.key === 'a' || e.key === 'A') act = 'ulti';   // Ulti
+    
+    // D=Yumruk, S=Blok, A=Ulti
+    if (e.key === 'd' || e.key === 'D') act = 'attack'; 
+    if (e.key === 's' || e.key === 'S') act = 'block';  
+    if (e.key === 'a' || e.key === 'A') act = 'ulti';   
 
     if (act) {
         if (IS_ONLINE) {
@@ -290,23 +272,15 @@ window.addEventListener('keyup', e => {
     }
 });
 
-// --- 8. AI (DENGE VE DÜZELTME) ---
+// --- 8. AI ---
 function updateAI() {
     if (!VS_AI || p2.dead || !gameActive || IS_ONLINE) return;
     const dist = Math.abs(p1.mesh.position.x - p2.mesh.position.x);
     p2.vel.x = 0;
-    
     let rate = AI_DIFFICULTY === 'hard' ? 0.05 : 0.015;
-    let retreatDist = 1.0; 
+    if (dist > 2.5) p2.vel.x = p2.speed * (p1.mesh.position.x > p2.mesh.position.x ? 1 : -1);
+    else if (dist < 1.0) p2.vel.x = p2.speed * (p1.mesh.position.x > p2.mesh.position.x ? -1 : 1) * 0.5;
     
-    // Hareket: Kaçmak yok, dibine gir
-    if (dist > 2.2) {
-        p2.vel.x = p2.speed * (p1.mesh.position.x > p2.mesh.position.x ? 1 : -1);
-    } else if (dist < retreatDist) {
-        // Çok yakınsa hafif geri (ama kaçmak için değil, vurmak için)
-        p2.vel.x = p2.speed * (p1.mesh.position.x > p2.mesh.position.x ? -1 : 1) * 0.5;
-    }
-
     if (dist < 3.5 && Math.random() < rate) p2.attack(false);
     if (p2.ulti >= 100 && dist < 4 && Math.random() < 0.1) p2.attack(true);
     p2.isBlocking = (p1.isAttacking && Math.random() < 0.4);
@@ -318,11 +292,9 @@ function animate() {
     const time = Date.now() * 0.001;
     if (gameActive && p1 && p2) {
         if (VS_AI) updateAI();
-        // Rakibi güncellemeye gönder (Yüzünü dönmesi için)
-        p1.update(-0.02, time, p2); 
-        p2.update(-0.02, time, p1);
+        p1.update(-0.02, time, p2); p2.update(-0.02, time, p1);
 
-        // İçinden Geçmeme (Collision)
+        // İçinden Geçmeme
         if (!p1.dead && !p2.dead) {
             const dx = p1.mesh.position.x - p2.mesh.position.x;
             if (Math.abs(dx) < 1.5 && Math.abs(p1.mesh.position.y - p2.mesh.position.y) < 2) {
@@ -331,6 +303,7 @@ function animate() {
             }
         }
 
+        // Vuruş Kontrol
         if (p1.isAttacking && !p1.hasHit) {
             const d = Math.abs(p1.mesh.position.x - p2.mesh.position.x);
             if (d < 3.5 && ((p1.facing === 1 && p2.mesh.position.x > p1.mesh.position.x) || (p1.facing === -1 && p2.mesh.position.x < p1.mesh.position.x))) {
@@ -348,14 +321,25 @@ function animate() {
             p2.hasHit = true; setTimeout(() => p2.hasHit = false, 200);
         }
     }
-    if (p1 && p2) camera.position.x += ((p1.mesh.position.x + p2.mesh.position.x) / 2 - camera.position.x) * 0.05;
+    
+    // Kamera Efektleri (Sabitlendi, kayma yok)
+    if (screenShake > 0) {
+        camera.position.x = originalCamPos.x + (Math.random() - 0.5) * screenShake;
+        camera.position.y = originalCamPos.y + (Math.random() - 0.5) * screenShake;
+        screenShake *= 0.9;
+    } else {
+        // Kamerayı merkeze geri getir (Ring kaymasını önler)
+        camera.position.x = originalCamPos.x;
+        camera.position.y = originalCamPos.y;
+    }
+    
     particles.forEach((p, i) => { p.life -= 0.05; p.mesh.position.add(p.vel); p.mesh.scale.setScalar(p.life); if (p.life <= 0) { scene.remove(p.mesh); particles.splice(i, 1); } });
     renderer.render(scene, camera); updateHUD();
 }
 animate();
 window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
 
-// --- ONLINE BAĞLANTI (GÜVENLİ) ---
+// --- ONLINE ---
 function initPeer() {
     document.getElementById('status-text').innerText = "BAĞLANIYOR...";
     peer = new Peer(null, { debug: 1, secure: true, sameSite: 'none' });
@@ -379,14 +363,4 @@ window.joinGame = function() {
         });
     });
 }
-window.copyId = function() { navigator.clipboard.writeText(document.getElementById('my-id').innerText); alert("KOPYALANDI"); }
-
-// --- MOBİL (SOL - YUKARI - SAĞ) ---
-['btn-left', 'btn-jump', 'btn-right', 'btn-atk', 'btn-block', 'btn-ulti'].forEach(id => {
-    const el = document.getElementById(id);
-    const map = { 'btn-left': 'left', 'btn-right': 'right', 'btn-jump': 'jump', 'btn-atk': 'attack', 'btn-block': 'block', 'btn-ulti': 'ulti' };
-    if (el) {
-        el.addEventListener('touchstart', e => { e.preventDefault(); handleInput(p1, map[id], true); });
-        el.addEventListener('touchend', e => { e.preventDefault(); handleInput(p1, map[id], false); });
-    }
-});
+window.copyId = function() { navigator.c
