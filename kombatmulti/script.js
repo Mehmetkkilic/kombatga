@@ -1,9 +1,3 @@
-function startGame() {
-   goFullscreen();  // ekledik
-   document.getElementById('main-menu').style.display = 'none';
-   document.getElementById('game-hud').style.display = 'block';
-   ...
-}
 // --- GLOBAL DEĞİŞKENLER ---
 let VS_AI = true;
 let IS_ONLINE = false;
